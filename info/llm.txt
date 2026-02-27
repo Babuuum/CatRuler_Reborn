@@ -1,0 +1,13 @@
+kadinsky + vps
+loacl + stable diffusion
+openrouter + ... ---net besplatnih modelei dl9 generacii photo
+leonardo.ai (service) ---malen'kie limiti
+
+hf: deepseek-ai/DeepSeek-V3-0324, meta-llama/Llama-3.1-8B-Instruct, HuggingFaceTB/SmolLM3-3B, openai/gpt-oss-120b:fastest, mistralai/Mistral-7B-Instruct-v0.3
+
+
+---
+poka i3 rabo4ih variantov
+kadinsky lokal'no, hugging face--o4en' hyevo generit
+
+kadinsky rabotaet interesnee vsego

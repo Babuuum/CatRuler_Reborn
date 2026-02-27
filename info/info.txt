@@ -1,0 +1,35 @@
+pisat' ot ispolnitel9 k stryktyre
+1 generator
+2 vk tg uploader
+3 fast api + db crud
+4 ui
+
+
+auth i limits mojno 3asynyt' v midlvari
+mb pisat' prompti na angliiskom
+
+dobvavit' model' dl9 perevoda promptov na angliiskii
+
+tak je dobavit' o4ishenie hranilisha odin ra3 v mes9c
+
+mojno o4ered' reali3ovat' nodoi
+
+pri podklu4enii nado prover9t' smojet li postit' bot
+
+
+
+SMM
+vovle4ennost' ayditorii, povsit' eto
+dat' instrymenti dl9 raboti s postom vnytri socseti, nprimer blur kartinki...
+metriki, popadanie v viral'nie stabil'nii rost
+
+proverki:
+1 yte4ka 3avisimostei
+sqlin'ekcii
+rabota event loopa, vse aynhronno
+
+scenarii:
+skopirovat' ba3y dannih sdelat' migraciu i perenesti 94eiki
+
+koti:
+soberrat' post_id i parsit' gryppi, prover9t' analitiky
