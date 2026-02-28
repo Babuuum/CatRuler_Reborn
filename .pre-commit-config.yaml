@@ -1,0 +1,28 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+        exclude: ^app/
+      - id: ruff-format
+        exclude: ^app/
+
+  - repo: https://github.com/psf/black
+    rev: 24.4.2
+    hooks:
+      - id: black
+        exclude: ^app/
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^(app/|AGENTS\.md|catruler_spec\.md|info/)
+      - id: end-of-file-fixer
+        exclude: ^(app/|AGENTS\.md|catruler_spec\.md|info/|\.env\.example|\.gitignore)
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: debug-statements
+        exclude: ^app/
