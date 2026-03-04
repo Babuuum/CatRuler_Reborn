@@ -1,12 +1,15 @@
 from cryptography.fernet import Fernet
+from pydantic import computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, computed_field, field_validator
-from pathlib import Path
+
 
 class Settings(BaseSettings):
     # PROJECT
     DEV_MODE: bool = True
     LOG_LEVEL: str = "INFO"
+    JWT_SECRET_KEY: str = ""
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = 60 * 24 * 7
 
     # DB
     PROD_DB_NAME: str = ""
@@ -49,13 +52,12 @@ class Settings(BaseSettings):
         return f"postgresql+asyncpg://{self.PROD_DB_USER}:{self.PROD_DB_PASSWORD}@{self.PROD_DB_HOST}:{self.PROD_DB_PORT}/{self.PROD_DB_NAME}"
 
     model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore")
+        env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
+    )
 
 
 _settings: Settings | None = None
+
 
 def get_settings() -> Settings:
     global _settings

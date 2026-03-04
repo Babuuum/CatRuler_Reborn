@@ -1,11 +1,12 @@
-from dataclasses import dataclass, field
-from typing import Callable
 import asyncio
 import json
+from collections.abc import Callable
+from dataclasses import dataclass, field
+
 import httpx
 
-
 # --- Конфиг ---
+
 
 @dataclass
 class APIConfig:
@@ -31,6 +32,7 @@ class ProxyConfig:
 
 
 # --- Реестры моделей вместо Enum ---
+
 
 class TextModels:
     OR_GEMINI = "or_gemini"
@@ -121,6 +123,7 @@ def build_image_registry(settings) -> dict[str, APIConfig]:
 
 # --- Кастомные исключения ---
 
+
 class ProviderError(Exception):
     def __init__(self, provider: str, reason: str):
         super().__init__(f"[{provider}] {reason}")
@@ -129,10 +132,11 @@ class ProviderError(Exception):
 
 # --- Результат ---
 
+
 @dataclass
 class GeneratedPost:
     text: str
-    image_bytes: bytes          # единый тип — всегда байты
+    image_bytes: bytes  # единый тип — всегда байты
     text_model_used: str
     image_model_used: str
     prompt: str
@@ -140,10 +144,11 @@ class GeneratedPost:
 
 # --- Генератор ---
 
+
 class PostGenerator:
     def __init__(
         self,
-        settings,                                    # передаём явно, не с модуля
+        settings,  # передаём явно, не с модуля
         text_model: str = TextModels.OR_GEMINI,
         image_model: str = ImageModels.POLLEN_FLUX,
         proxy: ProxyConfig | None = None,
@@ -158,11 +163,11 @@ class PostGenerator:
         self._image_registry = build_image_registry(settings)
 
         self._text_router: dict[str, Callable] = {
-            "open_router":  self._generate_openai_compat,
+            "open_router": self._generate_openai_compat,
             "hugging_face": self._generate_openai_compat,
         }
         self._image_router: dict[str, Callable] = {
-            "pollen":              self._generate_pollen_image,
+            "pollen": self._generate_pollen_image,
             "hugging_face_spaces": self._generate_hf_spaces_image,
         }
 
@@ -212,7 +217,9 @@ class PostGenerator:
             response.raise_for_status()
             return response.json()["choices"][0]["message"]["content"]
         except httpx.HTTPStatusError as e:
-            raise ProviderError(config.provider, f"HTTP {e.response.status_code}: {e.response.text}")
+            raise ProviderError(
+                config.provider, f"HTTP {e.response.status_code}: {e.response.text}"
+            )
         except httpx.RequestError as e:
             raise ProviderError(config.provider, f"Ошибка соединения: {e}")
 
@@ -220,6 +227,7 @@ class PostGenerator:
         self, prompt: str, config: APIConfig, client: httpx.AsyncClient
     ) -> bytes:
         from urllib.parse import quote
+
         try:
             url = f"{config.url}{quote(prompt)}"
             headers = {"Authorization": f"Bearer {config.api_key}"}
@@ -231,7 +239,9 @@ class PostGenerator:
             response.raise_for_status()
             return response.content
         except httpx.HTTPStatusError as e:
-            raise ProviderError(config.provider, f"HTTP {e.response.status_code}: {e.response.text}")
+            raise ProviderError(
+                config.provider, f"HTTP {e.response.status_code}: {e.response.text}"
+            )
         except httpx.RequestError as e:
             raise ProviderError(config.provider, f"Ошибка соединения: {e}")
 
@@ -248,8 +258,10 @@ class PostGenerator:
                 },
                 json={
                     "data": [
-                        prompt, "",
-                        0, True,
+                        prompt,
+                        "",
+                        0,
+                        True,
                         extra.get("width", 1024),
                         extra.get("height", 1024),
                         0.0,
@@ -275,7 +287,9 @@ class PostGenerator:
                     elif line.startswith("data:"):
                         data = json.loads(line.split(":", 1)[1].strip())
                         if current_event == "error":
-                            raise ProviderError(config.provider, f"Spaces error: {data}")
+                            raise ProviderError(
+                                config.provider, f"Spaces error: {data}"
+                            )
                         if current_event == "complete":
                             image_url = data[0]["url"]
                             img_response = await client.get(image_url)
@@ -285,7 +299,9 @@ class PostGenerator:
         except ProviderError:
             raise
         except httpx.HTTPStatusError as e:
-            raise ProviderError(config.provider, f"HTTP {e.response.status_code}: {e.response.text}")
+            raise ProviderError(
+                config.provider, f"HTTP {e.response.status_code}: {e.response.text}"
+            )
         except httpx.RequestError as e:
             raise ProviderError(config.provider, f"Ошибка соединения: {e}")
 
