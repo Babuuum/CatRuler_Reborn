@@ -1,3 +1,4 @@
+import enum
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -13,16 +14,14 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
-import enum
-
-from app.core.utils.crypto import encrypt, decrypt
 
 from app.core.db.base import Base
-
+from app.core.utils.crypto import decrypt, encrypt
 
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
+
 
 class PlanEnum(str, enum.Enum):
     free = "free"
@@ -52,9 +51,11 @@ class ActionEnum(str, enum.Enum):
     post_sent = "post_sent"
     image_generated = "image_generated"
 
+
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
+
 
 class User(Base):
     __tablename__ = "users"
@@ -67,6 +68,9 @@ class User(Base):
         Enum(PlanEnum, name="plan_enum"), nullable=False, default=PlanEnum.free
     )
     extended_free: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    api_password_hash: Mapped[str | None] = mapped_column(
+        String, nullable=True, default=None
+    )
     created_at: Mapped[datetime] = mapped_column(
         nullable=False, server_default=func.now()
     )
@@ -89,6 +93,9 @@ class Channel(Base):
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        nullable=False, server_default=func.now()
+    )
 
     # Relations
     user: Mapped["User"] = relationship(back_populates="channels")
@@ -118,13 +125,17 @@ class Channel(Base):
 class VKChannelConfig(Base):
     __tablename__ = "vk_channel_configs"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
     channel_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, unique=True
     )
     group_id: Mapped[str] = mapped_column(String, nullable=False)
 
-    _community_token: Mapped[str] = mapped_column("community_token", String, nullable=False)
+    _community_token: Mapped[str] = mapped_column(
+        "community_token", String, nullable=False
+    )
 
     @validates("_community_token")
     def encrypt_token(self, key: str, value: str) -> str:
@@ -171,10 +182,14 @@ class PostQueue(Base):
     content_type: Mapped[ContentTypeEnum] = mapped_column(
         Enum(ContentTypeEnum, name="content_type_enum"), nullable=False
     )
-    prompt_used: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    generated_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    generated_image_key: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    text_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generated_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generated_image_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        nullable=False, server_default=func.now()
+    )
 
     channel: Mapped["Channel"] = relationship(back_populates="post_queue")
 
@@ -204,6 +219,6 @@ class AdPost(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    image_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

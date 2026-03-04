@@ -1,4 +1,3 @@
-import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
@@ -7,11 +6,14 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from app.core.db.base import Base
 from app.core.db.models import models as _models  # noqa: F401
+from app.core.settings import get_settings
+
+settings = get_settings()
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
-database_url = os.getenv("DATABASE_URL", "sqlite:///./alembic.db")
+database_url = settings.database_url
 config.set_main_option("DATABASE_URL", database_url)
 
 # Interpret the config file for Python logging.
