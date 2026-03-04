@@ -3,6 +3,7 @@ __pycache__/
 *.egg-info/
 .env
 .codex/
+.vscode/
 
 tasks.txt
 
