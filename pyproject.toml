@@ -16,6 +16,9 @@ httpx = ">=0.28.1,<0.29.0"
 sqlalchemy = ">=2.0.47,<3.0.0"
 cryptography = ">=46.0.5,<47.0.0"
 aioboto3 = ">=15.5.0,<16.0.0"
+asyncpg = "^0.31.0"
+structlog = "^25.5.0"
+python-jose = {extras = ["cryptography"], version = "^3.5.0"}
 
 [tool.poetry.group.dev.dependencies]
 ruff = ">=0.4.4,<0.5.0"
@@ -37,7 +40,6 @@ faker = ">=25.2.0,<26.0.0"
 [tool.ruff]
 line-length = 88
 target-version = "py311"
-exclude = ["app/**"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "ASYNC"]
@@ -49,7 +51,6 @@ known-first-party = ["app"]
 [tool.black]
 line-length = 88
 target-version = ["py311"]
-force-exclude = "/app/"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
