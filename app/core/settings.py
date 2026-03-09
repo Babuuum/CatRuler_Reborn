@@ -20,6 +20,7 @@ class Settings(BaseSettings):
 
     # TG
     TELEGRAM_BOT_TOKEN: str = ""
+    INTERNAL_API_URL: str = "http://localhost:8000"
     BASE_URL: str = ""
     WEBHOOK_PATH: str = ""
     TELEGRAM_BOT_SECRET_TOKEN: str = ""
