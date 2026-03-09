@@ -22,9 +22,10 @@ class UserUpdate(BaseModel):
 
 
 class UserStats(BaseModel):
-    total_posts_sent: int
-    posts_today: int
-    posts_this_month: int
+    plan: PlanEnum
     channels_count: int
-    plan_limit_today: int
-    plan_limit_remaining: int
+    channels_limit: int
+    posts_today: int
+    posts_limit: int
+    generations_today: int
+    generations_limit: int

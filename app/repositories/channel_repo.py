@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -23,6 +23,12 @@ async def get_all_by_user(db: AsyncSession, user_id: UUID) -> list[Channel]:
     )
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def count_by_user(db: AsyncSession, user_id: UUID) -> int:
+    stmt = select(func.count(Channel.id)).where(Channel.user_id == user_id)
+    result = await db.execute(stmt)
+    return int(result.scalar_one() or 0)
 
 
 async def get_by_id(db: AsyncSession, channel_id: UUID) -> Channel | None:

@@ -1,6 +1,7 @@
+from datetime import UTC, datetime, time, timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -25,6 +26,24 @@ async def get_all_by_user(
 
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def count_today_by_user(db: AsyncSession, user_id: UUID) -> int:
+    now = datetime.now(UTC)
+    day_start = datetime.combine(now.date(), time.min, tzinfo=UTC)
+    day_end = day_start + timedelta(days=1)
+
+    stmt = (
+        select(func.count(PostQueue.id))
+        .join(Channel, PostQueue.channel_id == Channel.id)
+        .where(
+            Channel.user_id == user_id,
+            PostQueue.created_at >= day_start,
+            PostQueue.created_at < day_end,
+        )
+    )
+    result = await db.execute(stmt)
+    return int(result.scalar_one() or 0)
 
 
 async def get_by_id(db: AsyncSession, post_id: UUID) -> PostQueue | None:

@@ -53,7 +53,8 @@ async def create_api_password(
 
 
 @router.get("/me/stats", response_model=UserStats)
-async def get_me_stats() -> UserStats:
-    raise HTTPException(
-        status_code=501, detail="TODO: stats endpoint is not implemented"
-    )
+async def get_me_stats(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserStats:
+    return await user_service.get_stats(db, current_user.id)
