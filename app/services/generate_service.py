@@ -68,52 +68,11 @@ async def _upload_generated_image(user_id: UUID, image_bytes: bytes) -> str:
 
     key = f"generated/{user_id}/{uuid4()}.jpg"
     try:
-        session = storage._get_session()
-        async with session.client("s3", endpoint_url=storage.ENDPOINT) as s3:
-            await s3.put_object(
-                Bucket=get_settings().YANDEX_BUCKET_NAME,
-                Key=key,
-                Body=image_bytes,
-                ContentType="image/jpeg",
-            )
+        await storage.upload_image(key, image_bytes)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Image upload failed") from exc
 
     return key
-
-
-async def _generate_text_only(generator: PostGenerator, prompt: str) -> tuple[str, str]:
-    text_config = generator._text_registry[generator._text_model]
-    text_handler = generator._text_router[text_config.provider]
-
-    try:
-        async with generator._make_client() as client:
-            text = await text_handler(prompt, text_config, client)
-    except ProviderError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="All generation providers failed. Try again later.",
-        ) from exc
-
-    return text, text_config.provider
-
-
-async def _generate_image_only(
-    generator: PostGenerator, prompt: str
-) -> tuple[bytes, str]:
-    image_config = generator._image_registry[generator._image_model]
-    image_handler = generator._image_router[image_config.provider]
-
-    try:
-        async with generator._make_client() as client:
-            image_bytes = await image_handler(prompt, image_config, client)
-    except ProviderError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="All generation providers failed. Try again later.",
-        ) from exc
-
-    return image_bytes, image_config.provider
 
 
 async def generate_text(
@@ -126,7 +85,13 @@ async def generate_text(
     await _check_generation_limit(db, user_id, needed=1)
 
     generator = PostGenerator(get_settings())
-    text, provider_used = await _generate_text_only(generator, prompt)
+    try:
+        text, provider_used = await generator.generate_text(prompt)
+    except ProviderError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="All generation providers failed. Try again later.",
+        ) from exc
 
     await usage_log_repo.create(db, user_id, ActionEnum.post_generated)
     logger.info(
@@ -148,7 +113,13 @@ async def generate_image(
     await _check_generation_limit(db, user_id, needed=1)
 
     generator = PostGenerator(get_settings())
-    image_bytes, provider_used = await _generate_image_only(generator, prompt)
+    try:
+        image_bytes, provider_used = await generator.generate_image(prompt)
+    except ProviderError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="All generation providers failed. Try again later.",
+        ) from exc
     image_key = await _upload_generated_image(user_id, image_bytes)
 
     await usage_log_repo.create(db, user_id, ActionEnum.image_generated)
@@ -172,14 +143,21 @@ async def generate_text_image(
     await _check_generation_limit(db, user_id, needed=2)
 
     generator = PostGenerator(get_settings())
-    text, provider_used_text = await _generate_text_only(generator, text_prompt)
-    image_bytes, provider_used_image = await _generate_image_only(
-        generator, image_prompt
-    )
+    try:
+        text, provider_used_text = await generator.generate_text(text_prompt)
+        image_bytes, provider_used_image = await generator.generate_image(image_prompt)
+    except ProviderError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="All generation providers failed. Try again later.",
+        ) from exc
     image_key = await _upload_generated_image(user_id, image_bytes)
 
-    await usage_log_repo.create(db, user_id, ActionEnum.post_generated)
-    await usage_log_repo.create(db, user_id, ActionEnum.image_generated)
+    await usage_log_repo.create_bulk(
+        db,
+        user_id,
+        [ActionEnum.post_generated, ActionEnum.image_generated],
+    )
 
     logger.info(
         "text_image_generated",

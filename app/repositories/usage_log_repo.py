@@ -15,6 +15,18 @@ async def create(db: AsyncSession, user_id: UUID, action: ActionEnum) -> UsageLo
     return usage_log
 
 
+async def create_bulk(
+    db: AsyncSession,
+    user_id: UUID,
+    actions: list[ActionEnum],
+) -> list[UsageLog]:
+    """Create multiple usage log entries in a single transaction."""
+    logs = [UsageLog(user_id=user_id, action=action) for action in actions]
+    db.add_all(logs)
+    await db.flush()
+    return logs
+
+
 async def count_today(db: AsyncSession, user_id: UUID, action: ActionEnum) -> int:
     now = datetime.now(UTC)
     day_start = datetime.combine(now.date(), time.min, tzinfo=UTC)

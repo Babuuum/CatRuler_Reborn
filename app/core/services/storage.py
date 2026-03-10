@@ -35,6 +35,18 @@ async def upload_file(file: bytes, ext: str = "jpg") -> str:
     return key
 
 
+async def upload_image(key: str, data: bytes) -> None:
+    """Upload image bytes to S3 storage."""
+    session = _get_session()
+    async with session.client("s3", endpoint_url=ENDPOINT) as s3:
+        await s3.put_object(
+            Bucket=get_settings().YANDEX_BUCKET_NAME,
+            Key=key,
+            Body=data,
+            ContentType="image/jpeg",
+        )
+
+
 async def download_file(key: str) -> bytes:
     """Скачивает файл из бакета по key"""
     async with _get_session().client("s3", endpoint_url=ENDPOINT) as s3:

@@ -202,6 +202,32 @@ class PostGenerator:
             prompt=prompt,
         )
 
+    async def generate_text(self, prompt: str) -> tuple[str, str]:
+        """Generate text only. Returns (text, provider_name)."""
+        if not prompt or not prompt.strip():
+            raise ValueError("Prompt не может быть пустым")
+
+        text_config = self._text_registry[self._text_model]
+        text_handler = self._text_router[text_config.provider]
+
+        async with self._make_client() as client:
+            text = await text_handler(prompt, text_config, client)
+
+        return text, text_config.provider
+
+    async def generate_image(self, prompt: str) -> tuple[bytes, str]:
+        """Generate image only. Returns (image_bytes, provider_name)."""
+        if not prompt or not prompt.strip():
+            raise ValueError("Prompt не может быть пустым")
+
+        image_config = self._image_registry[self._image_model]
+        image_handler = self._image_router[image_config.provider]
+
+        async with self._make_client() as client:
+            image_bytes = await image_handler(prompt, image_config, client)
+
+        return image_bytes, image_config.provider
+
     async def _generate_openai_compat(
         self, prompt: str, config: APIConfig, client: httpx.AsyncClient
     ) -> str:
