@@ -137,3 +137,13 @@ async def retry_post(db: AsyncSession, user_id: UUID, post_id: UUID) -> PostResp
     updated = await post_repo.retry(db, post_id)
     logger.info("post_retry", post_id=str(post_id))
     return _to_post_response(updated)
+
+
+async def trigger_publish(db: AsyncSession, user_id: UUID, post_id: UUID) -> dict:
+    await _get_owned_post(db, user_id, post_id)
+
+    from app.tasks.publish_post import publish_post
+
+    task = publish_post.delay(str(post_id))
+    logger.info("post_publish_triggered", post_id=str(post_id), user_id=str(user_id))
+    return {"post_id": str(post_id), "task_id": task.id, "queued": True}

@@ -66,3 +66,12 @@ async def retry_post(
     db: AsyncSession = Depends(get_db),
 ) -> PostResponse:
     return await post_service.retry_post(db, current_user.id, post_id)
+
+
+@router.post("/{post_id}/publish")
+async def publish_post(
+    post_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await post_service.trigger_publish(db, current_user.id, post_id)

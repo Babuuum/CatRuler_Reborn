@@ -3,12 +3,15 @@ from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.db.models.models import Channel, PostQueue, PostStatusEnum
 from app.schemas.post import PostCreate
 
-_BASE_OPTIONS = (selectinload(PostQueue.channel),)
+_BASE_OPTIONS = (
+    selectinload(PostQueue.channel).selectinload(Channel.vk_config),
+    selectinload(PostQueue.channel).selectinload(Channel.tg_config),
+)
 
 
 async def get_all_by_user(
@@ -110,3 +113,40 @@ async def retry(db: AsyncSession, post_id: UUID) -> PostQueue:
     if updated is None:
         raise ValueError("Post not found")
     return updated
+
+
+def get_by_id_sync(db: Session, post_id: UUID) -> PostQueue | None:
+    stmt = select(PostQueue).where(PostQueue.id == post_id).options(*_BASE_OPTIONS)
+    return db.execute(stmt).scalar_one_or_none()
+
+
+def get_due_pending_sync(db: Session, scheduled_before: datetime) -> list[PostQueue]:
+    stmt = (
+        select(PostQueue)
+        .join(Channel, PostQueue.channel_id == Channel.id)
+        .where(
+            PostQueue.status == PostStatusEnum.pending,
+            PostQueue.scheduled_at <= scheduled_before,
+            Channel.is_active.is_(True),
+        )
+        .options(*_BASE_OPTIONS)
+        .order_by(PostQueue.scheduled_at)
+    )
+    return list(db.execute(stmt).scalars().all())
+
+
+def update_status_sync(
+    db: Session,
+    post_id: UUID,
+    status: PostStatusEnum,
+    error_message: str | None = None,
+) -> PostQueue:
+    post = get_by_id_sync(db, post_id)
+    if post is None:
+        raise ValueError("Post not found")
+
+    post.status = status
+    post.error_message = error_message
+    db.commit()
+    db.refresh(post)
+    return post
