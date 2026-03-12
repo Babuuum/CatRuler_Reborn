@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, time, timedelta
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -28,8 +28,7 @@ async def create_bulk(
 
 
 async def count_today(db: AsyncSession, user_id: UUID, action: ActionEnum) -> int:
-    now = datetime.now(UTC)
-    day_start = datetime.combine(now.date(), time.min, tzinfo=UTC)
+    day_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = day_start + timedelta(days=1)
 
     stmt = select(func.count(UsageLog.id)).where(

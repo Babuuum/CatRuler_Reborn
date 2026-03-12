@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -16,8 +16,8 @@ logger = get_logger(__name__)
 
 def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
+        return value
+    return value.astimezone(UTC).replace(tzinfo=None)
 
 
 def _to_post_response(post: PostQueue) -> PostResponse:
@@ -58,8 +58,7 @@ async def _check_daily_post_limit(db: AsyncSession, user_id: UUID) -> None:
 
     limit = get_daily_post_limit(user.plan, user.extended_free)
 
-    now = datetime.now(UTC)
-    day_start = datetime.combine(now.date(), time.min, tzinfo=UTC)
+    day_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = day_start + timedelta(days=1)
 
     posts = await post_repo.get_all_by_user(db, user_id)
