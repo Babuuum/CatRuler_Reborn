@@ -116,11 +116,11 @@ def publish_post(self, post_id: str) -> dict:
                     error_message=error_message,
                 )
                 logger.error(
-                    "publish_post_failed",
-                    task_id=self.request.id,
-                    post_id=post_id,
-                    channel_id=str(post.channel_id),
-                    error_message=error_message,
+                    "publish_post_failed task_id=%s post_id=%s channel_id=%s error=%s",
+                    self.request.id,
+                    post_id,
+                    str(post.channel_id),
+                    error_message,
                 )
                 return {
                     "post_id": post_id,
@@ -130,10 +130,10 @@ def publish_post(self, post_id: str) -> dict:
 
             post_repo.update_status_sync(db, post_uuid, PostStatusEnum.sent)
             logger.info(
-                "publish_post_sent",
-                task_id=self.request.id,
-                post_id=post_id,
-                channel_id=str(post.channel_id),
+                "publish_post_sent task_id=%s post_id=%s channel_id=%s",
+                self.request.id,
+                post_id,
+                str(post.channel_id),
             )
             return {
                 "post_id": post_id,
@@ -142,16 +142,16 @@ def publish_post(self, post_id: str) -> dict:
             }
     except SoftTimeLimitExceeded as exc:
         logger.error(
-            "publish_post_soft_time_limit",
-            task_id=self.request.id,
-            post_id=post_id,
+            "publish_post_soft_time_limit task_id=%s post_id=%s",
+            self.request.id,
+            post_id,
         )
         raise self.retry(exc=exc)
     except Exception as exc:
         logger.exception(
-            "publish_post_exception",
-            task_id=self.request.id,
-            post_id=post_id,
+            "publish_post_exception task_id=%s post_id=%s",
+            self.request.id,
+            post_id,
         )
         try:
             raise self.retry(exc=exc)

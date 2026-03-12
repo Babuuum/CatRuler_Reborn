@@ -31,20 +31,20 @@ def dispatch_pending_posts(self) -> dict:
             dispatched.append({"post_id": str(post.id), "task_id": task.id})
 
         logger.info(
-            "dispatch_pending_posts_completed",
-            task_id=self.request.id,
-            count=len(dispatched),
+            "dispatch_pending_posts_completed task_id=%s count=%s",
+            self.request.id,
+            len(dispatched),
         )
         return {"count": len(dispatched), "dispatched": dispatched}
     except SoftTimeLimitExceeded as exc:
         logger.error(
-            "dispatch_pending_posts_soft_time_limit",
-            task_id=self.request.id,
+            "dispatch_pending_posts_soft_time_limit task_id=%s",
+            self.request.id,
         )
         raise self.retry(exc=exc)
     except Exception as exc:
         logger.exception(
-            "dispatch_pending_posts_exception",
-            task_id=self.request.id,
+            "dispatch_pending_posts_exception task_id=%s",
+            self.request.id,
         )
         raise self.retry(exc=exc)
