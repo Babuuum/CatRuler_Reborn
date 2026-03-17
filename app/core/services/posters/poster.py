@@ -42,6 +42,11 @@ class BaseAdapter(ABC):
         timeout = get_settings().PUBLISH_REQUEST_TIMEOUT
         return httpx.Timeout(timeout=timeout, connect=min(timeout, 5.0))
 
+    def _provider_error(self, exc: httpx.HTTPError) -> str:
+        if isinstance(exc, httpx.HTTPStatusError):
+            return f"provider error: {exc.response.status_code}"
+        return "provider error: connection failed"
+
 
 class TelegramAdapter(BaseAdapter):
     BASE = "https://api.telegram.org/bot{token}/{method}"
@@ -64,7 +69,7 @@ class TelegramAdapter(BaseAdapter):
                 platform="telegram",
                 channel_id=self.platform.channel_id,
                 success=False,
-                error=str(exc),
+                error=self._provider_error(exc),
             )
 
     async def _send_message(
@@ -155,7 +160,7 @@ class VKAdapter(BaseAdapter):
                 platform="vk",
                 channel_id=self.platform.channel_id,
                 success=False,
-                error=str(exc),
+                error=self._provider_error(exc),
             )
 
     async def _upload_photo(

@@ -1,7 +1,7 @@
+import asyncio
 from importlib.util import find_spec
 from uuid import UUID
 
-import boto3
 from billiard.exceptions import SoftTimeLimitExceeded
 from celery.exceptions import MaxRetriesExceededError
 from celery.utils.log import get_task_logger
@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.celery_app import celery_app
 from app.core.db.models.models import PlatformEnum, PostStatusEnum
+from app.core.services import storage
 from app.core.services.posters.poster import Platform, SocialPublisher
 from app.core.settings import get_settings
 from app.repositories import post_repo
@@ -40,15 +41,7 @@ def _get_session_factory() -> sessionmaker[Session]:
 
 
 def _download_image(image_key: str) -> bytes:
-    settings = get_settings()
-    s3 = boto3.client(
-        "s3",
-        endpoint_url="https://storage.yandexcloud.net",
-        aws_access_key_id=settings.YANDEX_ACCESS_KEY,
-        aws_secret_access_key=settings.YANDEX_SECRET_KEY,
-    )
-    response = s3.get_object(Bucket=settings.YANDEX_BUCKET_NAME, Key=image_key)
-    return response["Body"].read()
+    return asyncio.run(storage.download_file(image_key))
 
 
 def _build_platform(post) -> Platform:
@@ -78,6 +71,10 @@ def _get_post_text(post) -> str:
     return post.generated_text or post.text_prompt or ""
 
 
+def _sanitize_error_message(exc: Exception) -> str:
+    return f"publish failed: {type(exc).__name__}"
+
+
 @celery_app.task(
     bind=True,
     max_retries=3,
@@ -92,9 +89,25 @@ def publish_post(self, post_id: str) -> dict:
 
     try:
         with session_factory() as db:
-            post = post_repo.get_by_id_sync(db, post_uuid)
+            post = post_repo.claim_pending_for_publish_sync(db, post_uuid)
             if post is None:
-                raise ValueError("Post not found")
+                current_post = post_repo.get_by_id_sync(db, post_uuid)
+                if current_post is None:
+                    raise ValueError("Post not found")
+
+                logger.info(
+                    "publish_post_skipped task_id=%s post_id=%s channel_id=%s status=%s",
+                    self.request.id,
+                    post_id,
+                    str(current_post.channel_id),
+                    current_post.status.value,
+                )
+                return {
+                    "post_id": post_id,
+                    "status": current_post.status.value,
+                    "results": [],
+                    "skipped": True,
+                }
 
             image_bytes = (
                 _download_image(post.generated_image_key)
@@ -141,13 +154,33 @@ def publish_post(self, post_id: str) -> dict:
                 "results": [result.__dict__ for result in results],
             }
     except SoftTimeLimitExceeded as exc:
+        with session_factory() as db:
+            post = post_repo.get_by_id_sync(db, post_uuid)
+            if post is not None and post.status == PostStatusEnum.in_progress:
+                post_repo.update_status_sync(db, post_uuid, PostStatusEnum.pending)
         logger.error(
             "publish_post_soft_time_limit task_id=%s post_id=%s",
             self.request.id,
             post_id,
         )
-        raise self.retry(exc=exc)
+        try:
+            raise self.retry(exc=exc)
+        except MaxRetriesExceededError:
+            with session_factory() as db:
+                post = post_repo.get_by_id_sync(db, post_uuid)
+                if post is not None:
+                    post_repo.update_status_sync(
+                        db,
+                        post_uuid,
+                        PostStatusEnum.failed,
+                        error_message="Soft time limit exceeded",
+                    )
+            raise
     except Exception as exc:
+        with session_factory() as db:
+            post = post_repo.get_by_id_sync(db, post_uuid)
+            if post is not None and post.status == PostStatusEnum.in_progress:
+                post_repo.update_status_sync(db, post_uuid, PostStatusEnum.pending)
         logger.exception(
             "publish_post_exception task_id=%s post_id=%s",
             self.request.id,
@@ -163,6 +196,6 @@ def publish_post(self, post_id: str) -> dict:
                         db,
                         post_uuid,
                         PostStatusEnum.failed,
-                        error_message=str(exc),
+                        error_message=_sanitize_error_message(exc),
                     )
             raise

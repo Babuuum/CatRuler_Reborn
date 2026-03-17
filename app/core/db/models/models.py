@@ -36,6 +36,7 @@ class PlatformEnum(str, enum.Enum):
 
 class PostStatusEnum(str, enum.Enum):
     pending = "pending"
+    in_progress = "in_progress"
     sent = "sent"
     failed = "failed"
 

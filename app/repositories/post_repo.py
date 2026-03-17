@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import func, select
+from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, selectinload
 
@@ -149,3 +150,23 @@ def update_status_sync(
     db.commit()
     db.refresh(post)
     return post
+
+
+def claim_pending_for_publish_sync(db: Session, post_id: UUID) -> PostQueue | None:
+    result = db.execute(
+        sa_update(PostQueue)
+        .where(
+            PostQueue.id == post_id,
+            PostQueue.status == PostStatusEnum.pending,
+        )
+        .values(
+            status=PostStatusEnum.in_progress,
+            error_message=None,
+        )
+    )
+    if result.rowcount == 0:
+        db.rollback()
+        return None
+
+    db.commit()
+    return get_by_id_sync(db, post_id)
