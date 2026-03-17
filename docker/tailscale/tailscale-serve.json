@@ -8,15 +8,15 @@
     "catruler.tailb0217d.ts.net:443": {
       "Handlers": {
         "/": {
-          "Proxy": "http://api:8000"
+          "Proxy": "http://127.0.0.1:8001"
         },
         "/webhook/bot": {
-          "Proxy": "http://bot:8080"
+          "Proxy": "http://127.0.0.1:8080"
         }
       }
     }
   },
   "AllowFunnel": {
-    "catruler.tailb0217d.ts.net:443": true
+    "${TS_CERT_DOMAIN}:443": true
   }
 }

@@ -104,20 +104,16 @@ services:
 
   tailscale:
     image: tailscale/tailscale:stable
-    hostname: ${TAILSCALE_HOSTNAME:-catruler}
+    network_mode: host
+    depends_on:
+      bot:
+        condition: service_started
     environment:
       TS_AUTHKEY: ${TAILSCALE_AUTH_KEY}
       TS_STATE_DIR: /var/lib/tailscale
-      TS_SERVE_CONFIG: /config/tailscale-serve.json
-      TS_USERSPACE: "false"
+      TS_USERSPACE: "true"
     volumes:
       - tailscale_data:/var/lib/tailscale
-      - ./tailscale-serve.json:/config/tailscale-serve.json:ro
-      - /dev/net/tun:/dev/net/tun
-    cap_add:
-      - NET_ADMIN
-      - SYS_MODULE
-    restart: unless-stopped
 
 volumes:
   postgres_data:
