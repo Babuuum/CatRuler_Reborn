@@ -2,6 +2,7 @@ import secrets
 import string
 from uuid import UUID
 
+import anyio
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +26,8 @@ def _to_user_response(user: User) -> UserResponse:
         plan=user.plan,
         extended_free=user.extended_free,
         has_api_password=bool(getattr(user, "api_password_hash", None)),
+        text_model_key=user.text_model_key,
+        image_model_key=user.image_model_key,
         created_at=user.created_at,
     )
 
@@ -32,6 +35,15 @@ def _to_user_response(user: User) -> UserResponse:
 def _generate_password(length: int = 16) -> str:
     alphabet = string.ascii_letters + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def _hash_password_sync(password: str) -> str:
+    try:
+        import bcrypt
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError("bcrypt dependency is required") from exc
+
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 async def get_me(db: AsyncSession, user_id: UUID) -> UserResponse:
@@ -53,14 +65,10 @@ async def get_or_create(db: AsyncSession, telegram_id: int) -> User:
 
 
 async def generate_api_password(db: AsyncSession, user_id: UUID) -> str:
-    try:
-        import bcrypt
-    except ImportError as exc:  # pragma: no cover
-        raise RuntimeError("bcrypt dependency is required") from exc
-
     password = _generate_password()
-    password_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode(
-        "utf-8"
+    password_hash = await anyio.to_thread.run_sync(
+        _hash_password_sync,
+        password,
     )
     await user_repo.update(db, user_id, {"api_password_hash": password_hash})
     logger.info("api_password_generated", user_id=str(user_id))

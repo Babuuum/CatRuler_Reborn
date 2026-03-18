@@ -8,6 +8,7 @@ from sqlalchemy import (
     Boolean,
     Enum,
     ForeignKey,
+    Index,
     String,
     Text,
     func,
@@ -16,6 +17,10 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.core.db.base import Base
+from app.core.generation_models import (
+    DEFAULT_IMAGE_MODEL_KEY,
+    DEFAULT_TEXT_MODEL_KEY,
+)
 from app.core.utils.crypto import decrypt, encrypt
 
 # ---------------------------------------------------------------------------
@@ -72,6 +77,18 @@ class User(Base):
     api_password_hash: Mapped[str | None] = mapped_column(
         String, nullable=True, default=None
     )
+    text_model_key: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        default=DEFAULT_TEXT_MODEL_KEY,
+        server_default=DEFAULT_TEXT_MODEL_KEY,
+    )
+    image_model_key: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        default=DEFAULT_IMAGE_MODEL_KEY,
+        server_default=DEFAULT_IMAGE_MODEL_KEY,
+    )
     created_at: Mapped[datetime] = mapped_column(
         nullable=False, server_default=func.now()
     )
@@ -87,7 +104,7 @@ class Channel(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     platform: Mapped[PlatformEnum] = mapped_column(
         Enum(PlatformEnum, name="platform_enum"), nullable=False
@@ -167,6 +184,9 @@ class TGChannelConfig(Base):
 
 class PostQueue(Base):
     __tablename__ = "post_queue"
+    __table_args__ = (
+        Index("ix_post_queue_status_scheduled_at", "status", "scheduled_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -197,6 +217,11 @@ class PostQueue(Base):
 
 class UsageLog(Base):
     __tablename__ = "usage_logs"
+    __table_args__ = (
+        Index(
+            "ix_usage_logs_user_action_created_at", "user_id", "action", "created_at"
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4

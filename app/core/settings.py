@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     # TG
     TELEGRAM_BOT_TOKEN: str = ""
     INTERNAL_API_URL: str = "http://localhost:8000"
+    INTERNAL_API_SHARED_SECRET: str = ""
     BOT_MODE: str = "polling"
     WEBHOOK_BASE_URL: str = ""
     WEBHOOK_PATH: str = "/webhook/bot"

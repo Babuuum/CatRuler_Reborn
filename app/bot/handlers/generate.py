@@ -16,6 +16,7 @@ from app.bot.api_client import (
     clear_cached_token,
     generate_text_image,
     get_or_refresh_token,
+    humanize_api_error,
 )
 
 router = Router()
@@ -61,7 +62,12 @@ async def _send_generation_result(
     except BotAPIError as exc:
         if exc.status_code == 401:
             clear_cached_token(telegram_id)
-        await progress_message.edit_text(f"Не удалось сгенерировать пост: {exc}")
+        await progress_message.edit_text(
+            humanize_api_error(
+                exc,
+                fallback="Не удалось сгенерировать пост. Попробуйте чуть позже.",
+            )
+        )
         return
 
     await state.update_data(last_prompt=prompt, last_result=result)

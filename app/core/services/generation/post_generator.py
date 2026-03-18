@@ -5,6 +5,11 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from app.core.generation_models import (
+    DEFAULT_IMAGE_MODEL_KEY,
+    DEFAULT_TEXT_MODEL_KEY,
+)
+
 # --- Конфиг ---
 
 
@@ -149,8 +154,8 @@ class PostGenerator:
     def __init__(
         self,
         settings,  # передаём явно, не с модуля
-        text_model: str = TextModels.OR_GEMINI,
-        image_model: str = ImageModels.POLLEN_FLUX,
+        text_model: str = DEFAULT_TEXT_MODEL_KEY,
+        image_model: str = DEFAULT_IMAGE_MODEL_KEY,
         proxy: ProxyConfig | None = None,
         timeout: int = 30,
     ):

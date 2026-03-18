@@ -4,6 +4,12 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.models.models import ActionEnum
+from app.core.generation_models import (
+    DEFAULT_IMAGE_MODEL_KEY,
+    DEFAULT_TEXT_MODEL_KEY,
+    is_valid_image_model_key,
+    is_valid_text_model_key,
+)
 from app.core.limits import get_daily_generation_limit
 from app.core.logger import get_logger
 from app.core.services import storage
@@ -53,6 +59,41 @@ async def _check_generation_limit(db: AsyncSession, user_id: UUID, needed: int) 
         )
 
 
+async def _build_generator(
+    db: AsyncSession,
+    user_id: UUID,
+) -> PostGenerator:
+    user = await user_repo.get_by_id(db, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    text_model_key = getattr(user, "text_model_key", DEFAULT_TEXT_MODEL_KEY)
+    if not is_valid_text_model_key(text_model_key):
+        logger.warning(
+            "invalid_text_model_key_fallback",
+            user_id=str(user_id),
+            text_model_key=text_model_key,
+            fallback=DEFAULT_TEXT_MODEL_KEY,
+        )
+        text_model_key = DEFAULT_TEXT_MODEL_KEY
+
+    image_model_key = getattr(user, "image_model_key", DEFAULT_IMAGE_MODEL_KEY)
+    if not is_valid_image_model_key(image_model_key):
+        logger.warning(
+            "invalid_image_model_key_fallback",
+            user_id=str(user_id),
+            image_model_key=image_model_key,
+            fallback=DEFAULT_IMAGE_MODEL_KEY,
+        )
+        image_model_key = DEFAULT_IMAGE_MODEL_KEY
+
+    return PostGenerator(
+        get_settings(),
+        text_model=text_model_key,
+        image_model=image_model_key,
+    )
+
+
 def _ensure_storage_configured() -> None:
     settings = get_settings()
     if (
@@ -84,7 +125,7 @@ async def generate_text(
     await _ensure_channel_access(db, user_id, channel_id)
     await _check_generation_limit(db, user_id, needed=1)
 
-    generator = PostGenerator(get_settings())
+    generator = await _build_generator(db, user_id)
     try:
         text, provider_used = await generator.generate_text(prompt)
     except ProviderError as exc:
@@ -112,7 +153,7 @@ async def generate_image(
     await _ensure_channel_access(db, user_id, channel_id)
     await _check_generation_limit(db, user_id, needed=1)
 
-    generator = PostGenerator(get_settings())
+    generator = await _build_generator(db, user_id)
     try:
         image_bytes, provider_used = await generator.generate_image(prompt)
     except ProviderError as exc:
@@ -142,7 +183,7 @@ async def generate_text_image(
     await _ensure_channel_access(db, user_id, channel_id)
     await _check_generation_limit(db, user_id, needed=2)
 
-    generator = PostGenerator(get_settings())
+    generator = await _build_generator(db, user_id)
     try:
         text, provider_used_text = await generator.generate_text(text_prompt)
         image_bytes, provider_used_image = await generator.generate_image(image_prompt)

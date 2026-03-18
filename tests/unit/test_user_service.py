@@ -1,6 +1,7 @@
 import sys
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -19,6 +20,11 @@ async def test_generate_api_password_returns_plain_and_stores_hash(mocker, monke
         hashpw=lambda password, salt: b"hashed-value",
     )
     monkeypatch.setitem(sys.modules, "bcrypt", fake_bcrypt)
+    run_sync_mock = AsyncMock(side_effect=lambda func, password: func(password))
+    run_sync_mock = mocker.patch(
+        "app.services.user_service.anyio.to_thread.run_sync",
+        run_sync_mock,
+    )
 
     update_mock = mocker.patch.object(user_service.user_repo, "update")
     mocker.patch.object(user_service, "_generate_password", return_value="PlainPass123")
@@ -31,6 +37,7 @@ async def test_generate_api_password_returns_plain_and_stores_hash(mocker, monke
         user_id,
         {"api_password_hash": "hashed-value"},
     )
+    run_sync_mock.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -46,6 +53,11 @@ async def test_generate_api_password_sets_has_api_password_true(mocker, monkeypa
         hashpw=lambda password, salt: b"hash-after-generate",
     )
     monkeypatch.setitem(sys.modules, "bcrypt", fake_bcrypt)
+    run_sync_mock = AsyncMock(side_effect=lambda func, password: func(password))
+    mocker.patch(
+        "app.services.user_service.anyio.to_thread.run_sync",
+        run_sync_mock,
+    )
 
     async def fake_update(_db, _user_id, data):
         state["api_password_hash"] = data["api_password_hash"]
@@ -58,6 +70,8 @@ async def test_generate_api_password_sets_has_api_password_true(mocker, monkeypa
             plan=PlanEnum.free,
             extended_free=False,
             api_password_hash=state["api_password_hash"],
+            text_model_key="or_gemini",
+            image_model_key="pollen_flux",
             created_at=now,
         )
 
@@ -82,6 +96,11 @@ async def test_generate_api_password_twice_overwrites_old_hash(mocker, monkeypat
         hashpw=lambda password, salt: f"hash-{password.decode()}".encode(),
     )
     monkeypatch.setitem(sys.modules, "bcrypt", fake_bcrypt)
+    run_sync_mock = AsyncMock(side_effect=lambda func, password: func(password))
+    mocker.patch(
+        "app.services.user_service.anyio.to_thread.run_sync",
+        run_sync_mock,
+    )
 
     async def fake_update(_db, _user_id, data):
         stored_hashes.append(data["api_password_hash"])
@@ -108,6 +127,8 @@ async def test_get_me_returns_user_response_with_expected_fields(mocker):
         plan=PlanEnum.base,
         extended_free=True,
         api_password_hash=None,
+        text_model_key="hf_qwen",
+        image_model_key="hf_sd_spaces",
         created_at=created_at,
     )
 
@@ -121,6 +142,8 @@ async def test_get_me_returns_user_response_with_expected_fields(mocker):
         "plan": PlanEnum.base,
         "extended_free": True,
         "has_api_password": False,
+        "text_model_key": "hf_qwen",
+        "image_model_key": "hf_sd_spaces",
         "created_at": created_at,
     }
 
@@ -134,6 +157,8 @@ async def test_get_me_has_api_password_true_when_hash_exists(mocker):
         plan=PlanEnum.free,
         extended_free=False,
         api_password_hash="some-hash",
+        text_model_key="or_gemini",
+        image_model_key="pollen_flux",
         created_at=datetime.now(UTC),
     )
 

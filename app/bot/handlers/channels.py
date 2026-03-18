@@ -7,6 +7,7 @@ from app.bot.api_client import (
     clear_cached_token,
     get_channels,
     get_or_refresh_token,
+    humanize_api_error,
 )
 
 router = Router()
@@ -31,12 +32,19 @@ async def channels_handler(message: Message) -> None:
     except BotAPIError as exc:
         if exc.status_code == 401:
             clear_cached_token(telegram_id)
-        await message.answer(f"Не удалось получить каналы: {exc}")
+        await message.answer(
+            humanize_api_error(
+                exc,
+                fallback="Не удалось загрузить каналы. Попробуйте чуть позже.",
+            )
+        )
         return
 
     if not channels:
         await message.answer(
-            "У вас нет подключённых каналов. Добавьте через /addchannel"
+            "У вас пока нет подключённых каналов.\n"
+            "Сейчас канал можно добавить через веб-интерфейс CatRuler. "
+            "После подключения он появится здесь."
         )
         return
 

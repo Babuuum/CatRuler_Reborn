@@ -7,7 +7,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from app.bot.api_client import BotAPIError, get_api_password
+from app.bot.api_client import BotAPIError, get_api_password, humanize_api_error
 
 router = Router()
 
@@ -29,7 +29,12 @@ async def password_handler(message: Message) -> None:
     try:
         password = await get_api_password(message.from_user.id)
     except BotAPIError as exc:
-        await message.answer(f"Не удалось получить пароль: {exc}")
+        await message.answer(
+            humanize_api_error(
+                exc,
+                fallback="Не удалось получить пароль. Попробуйте чуть позже.",
+            )
+        )
         return
 
     try:

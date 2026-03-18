@@ -29,6 +29,38 @@ def _get_redis() -> aioredis.Redis:
     return aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
 
 
+def _internal_api_secret_header() -> dict[str, str]:
+    return {
+        "X-Internal-Api-Secret": get_settings().INTERNAL_API_SHARED_SECRET,
+    }
+
+
+def humanize_api_error(exc: BotAPIError, *, fallback: str) -> str:
+    detail = exc.message.strip()
+    lowered = detail.lower()
+
+    if exc.status_code == 401:
+        return "Сессия обновилась. Повторите действие ещё раз."
+    if "daily generation limit reached" in lowered:
+        return (
+            "Вы достигли дневного лимита генераций. Лимиты можно посмотреть в профиле."
+        )
+    if "channel limit reached" in lowered:
+        return "Вы достигли лимита каналов для текущего плана."
+    if "all generation providers failed" in lowered:
+        return "Сервис генерации временно недоступен. Попробуйте позже."
+    if "image upload failed" in lowered or "storage not configured" in lowered:
+        return "Сейчас не удаётся подготовить изображение. Попробуйте позже."
+    if "internal api is unavailable" in lowered:
+        return "Сервис временно недоступен. Попробуйте чуть позже."
+    if "token expired" in lowered:
+        return "Сессия истекла. Повторите действие ещё раз."
+    if exc.status_code == 403:
+        return "Сейчас это действие недоступно."
+
+    return fallback
+
+
 def _token_cache_key(telegram_id: int) -> str:
     return f"bot:token:{telegram_id}"
 
@@ -89,7 +121,10 @@ async def get_api_password(telegram_id: int) -> str:
     data = await _request(
         "POST",
         "/users/me/api-password",
-        headers={"X-Telegram-Id": str(telegram_id)},
+        headers={
+            "X-Telegram-Id": str(telegram_id),
+            **_internal_api_secret_header(),
+        },
     )
     return str(data["password"])
 
@@ -182,11 +217,29 @@ async def get_profile(token: str) -> dict[str, Any]:
     return dict(data)
 
 
+async def update_profile(token: str, payload: dict[str, Any]) -> dict[str, Any]:
+    data = await _authorized_request(
+        "PATCH",
+        "/users/me",
+        token=token,
+        json=payload,
+    )
+    return dict(data)
+
+
 async def get_stats(token: str) -> dict[str, Any]:
     data = await _authorized_request(
         "GET",
         "/users/me/stats",
         token=token,
+    )
+    return dict(data)
+
+
+async def get_models() -> dict[str, Any]:
+    data = await _request(
+        "GET",
+        "/models",
     )
     return dict(data)
 

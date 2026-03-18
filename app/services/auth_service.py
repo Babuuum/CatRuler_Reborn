@@ -1,9 +1,14 @@
+import anyio
 import bcrypt
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.jwt import create_access_token
 from app.repositories import user_repo
+
+
+def _check_password_sync(password: str, password_hash: str) -> bool:
+    return bcrypt.checkpw(password.encode(), password_hash.encode())
 
 
 async def login(db: AsyncSession, telegram_id: int, password: str) -> str:
@@ -16,6 +21,11 @@ async def login(db: AsyncSession, telegram_id: int, password: str) -> str:
             status_code=401,
             detail="API password not set. Use /users/me/api-password via bot first.",
         )
-    if not bcrypt.checkpw(password.encode(), user.api_password_hash.encode()):
+    password_matches = await anyio.to_thread.run_sync(
+        _check_password_sync,
+        password,
+        user.api_password_hash,
+    )
+    if not password_matches:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     return create_access_token(str(user.id))

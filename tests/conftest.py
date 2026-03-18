@@ -23,6 +23,7 @@ os.environ.setdefault("PROD_DB_PASSWORD", "test")
 os.environ.setdefault("PROD_DB_HOST", "localhost")
 os.environ.setdefault("PROD_DB_PORT", "5432")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret")
+os.environ.setdefault("INTERNAL_API_SHARED_SECRET", "test-internal-secret")
 
 # auth_service imports bcrypt at module import time; provide a lightweight test stub
 # when bcrypt is absent in environment.
