@@ -14,8 +14,8 @@
 - **Backend:** Python, FastAPI
 - **БД:** PostgreSQL + SQLAlchemy
 - **Очередь задач:** Celery + Redis
-- **AI текст:** OpenAI GPT / Gemini (подключаемые модули)
-- **AI картинки:** Flux через Hugging Face Inference API
+- **AI текст:** OpenRouter + Hugging Face Router (подключаемые провайдеры)
+- **AI картинки:** Pollinations + Hugging Face Spaces
 - **Соцсети:** ВКонтакте API, Telegram Bot API
 - **Управление:** Telegram-бот (UI для пользователя)
 - **Деплой:** Docker Compose
@@ -59,6 +59,9 @@ id: UUID
 telegram_id: bigint (уникальный)
 plan: enum [free, base, pro]
 extended_free: bool  # расширен через рекламу
+api_password_hash: str | null
+text_model_key: str
+image_model_key: str
 created_at: timestamp
 ```
 
@@ -77,9 +80,10 @@ is_active: bool
 id: UUID
 channel_id: FK Channel
 scheduled_at: timestamp
-status: enum [pending, sent, failed]
+status: enum [pending, in_progress, sent, failed]
 content_type: enum [text, image, text_image]
-prompt_used: text
+text_prompt: text
+image_prompt: text
 generated_text: text
 generated_image_key: str
 error_message: str
@@ -235,8 +239,15 @@ Celery Beat запускает `schedule_posts` каждые 5 минут.
 
 ### Users
 - GET `/users/me` — профиль и тариф
-- PATCH `/users/me` — обновить настройки
+- PATCH `/users/me` — обновить публичные настройки пользователя
+- POST `/users/me/api-password` — выдать новый API-пароль для логина из бота
 - GET `/users/me/stats` — статистика постов
+
+`POST /users/me/api-password` не является публичным пользовательским вызовом:
+его вызывает бот с внутренним заголовком `X-Internal-Api-Secret`. Без этого
+секрета endpoint должен отклоняться.
+
+`extended_free` read-only в публичном API и не обновляется через `PATCH /users/me`.
 
 ### Admin
 - GET `/admin/users` — список всех юзеров
@@ -262,7 +273,10 @@ Celery Beat запускает `schedule_posts` каждые 5 минут.
 ### Generate
 - POST `/generate/text` — сгенерировать текст по промпту
 - POST `/generate/image` — сгенерировать картинку
-- POST `/generate/queue` — сгенерировать очередь постов на N дней (Base+)
+- POST `/generate/text-image` — сгенерировать текст и картинку
+
+### Models
+- GET `/models` — получить доступные `text_model_keys` и `image_model_keys`
 
 ### Billing
 - POST `/billing/upgrade` — инициировать оплату
@@ -275,13 +289,12 @@ Celery Beat запускает `schedule_posts` каждые 5 минут.
 
 ### Хэндлеры
 - `/start` → авторизация, автоматически назначается Free тариф
-- Кнопка "Личный кабинет" → тариф, каналы, лимиты
-- Кнопка "Добавить канал" → выбор платформы (ВК/ТГ), ввод ID канала
-- Кнопка "Создать пост" → выбор: загрузить фото или нейронка → выбор соцсети → выбор даты → подтверждение
-- Кнопка "Очередь" → список запланированных постов, удалить или перенести
-- Кнопка "Статистика" → посты за период, успешные/упавшие
-- Кнопка "Улучшить тариф" → описание планов, инициировать оплату
-- Кнопка "Расширить бесплатно" → объяснение Free Extended, согласие на рекламу
+- Кнопка "Профиль" → тариф, лимиты и выбранные модели генерации
+- В профиле можно выбрать текстовую и графическую модель из доступного каталога
+- Кнопка "Мои каналы" → список подключённых каналов или инструкция перейти в веб-интерфейс
+- Кнопка "Сгенерировать пост" → генерация текста и картинки
+- При ошибках бот показывает человекочитаемые сообщения вместо сырых backend detail
+- API-пароль бот запрашивает только через внутренний защищённый вызов API
 
 ---
 
@@ -305,7 +318,7 @@ async def get_active_ad() -> AdPost:
 
 ```yaml
 services:
-  app:       # FastAPI
+  api:       # FastAPI
   bot:       # Telegram-бот
   worker:    # Celery worker
   beat:      # Celery beat
@@ -315,21 +328,77 @@ services:
 
 ---
 
+## Как запустить
+
+### Через Docker Compose
+
+```bash
+cp .env.example .env
+docker compose build
+docker compose up -d
+docker compose run --rm migrate
+docker compose --profile bot up -d bot
+```
+
+Важно:
+- `INTERNAL_API_SHARED_SECRET` должен быть задан в `.env`
+- bot и api должны использовать одно и то же значение `INTERNAL_API_SHARED_SECRET`
+- bot ходит в API по `INTERNAL_API_URL=http://api:8000` внутри Docker сети
+
+### Через Makefile
+
+```bash
+make build
+make up
+make migrate
+make bot-up
+```
+
+---
+
+## Как тестировать
+
+```bash
+poetry run pytest tests/unit/test_user_service.py -q
+poetry run ruff check .
+poetry run black --check .
+poetry run pre-commit run -a
+```
+
+`make test` запускает `poetry run pytest -q`.
+
+---
+
 ## Переменные окружения (.env)
 
 ```
 DATABASE_URL=
 REDIS_URL=
-OPENAI_API_KEY=
-GEMINI_API_KEY=
-HUGGINGFACE_API_KEY=
-VK_ACCESS_TOKEN=
-VK_TOKEN=
-VK_GROUP_ID=
-VK_VERSION=
+CELERY_BROKER_URL=
+CELERY_RESULT_BACKEND=
 TELEGRAM_BOT_TOKEN=
-AD_FREQUENCY=5
+INTERNAL_API_URL=http://localhost:8000
+INTERNAL_API_SHARED_SECRET=
+JWT_SECRET_KEY=
+ENCRYPTION_KEY=
+OPEN_ROUTER_API_KEY=
+HUGGING_FACE_API_KEY=
+POLLEN_API_KEY=
+YANDEX_ACCESS_KEY=
+YANDEX_SECRET_KEY=
+YANDEX_BUCKET_NAME=
 ```
+
+Минимально для локального Docker запуска:
+- `PROD_DB_NAME`
+- `PROD_DB_USER`
+- `PROD_DB_PASSWORD`
+- `TELEGRAM_BOT_TOKEN`
+- `JWT_SECRET_KEY`
+- `ENCRYPTION_KEY`
+- `INTERNAL_API_SHARED_SECRET`
+
+Для AI-генерации и загрузки изображений дополнительно нужны ключи провайдеров и storage.
 
 ---
 
