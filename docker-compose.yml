@@ -85,8 +85,6 @@ services:
     build: .
     command: python -m app.bot.main
     env_file: .env
-    profiles:
-      - bot
     environment:
       PROD_DB_HOST: db
       PROD_DB_PORT: "5432"
@@ -105,9 +103,6 @@ services:
   tailscale:
     image: tailscale/tailscale:stable
     network_mode: host
-    depends_on:
-      bot:
-        condition: service_started
     environment:
       TS_AUTHKEY: ${TAILSCALE_AUTH_KEY}
       TS_STATE_DIR: /var/lib/tailscale
