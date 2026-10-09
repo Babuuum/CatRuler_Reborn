@@ -25,6 +25,7 @@ class PublishResult:
     post_id: str | None = None
     post_url: str | None = None
     error: str | None = None
+    unknown_outcome: bool = False
 
 
 class BaseAdapter(ABC):
@@ -70,6 +71,7 @@ class TelegramAdapter(BaseAdapter):
                 channel_id=self.platform.channel_id,
                 success=False,
                 error=self._provider_error(exc),
+                unknown_outcome=not isinstance(exc, httpx.HTTPStatusError),
             )
 
     async def _send_message(
@@ -161,6 +163,7 @@ class VKAdapter(BaseAdapter):
                 channel_id=self.platform.channel_id,
                 success=False,
                 error=self._provider_error(exc),
+                unknown_outcome=not isinstance(exc, httpx.HTTPStatusError),
             )
 
     async def _upload_photo(

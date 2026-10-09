@@ -20,7 +20,7 @@ async def _create_user(db_session, *, telegram_id: int) -> User:
         plan=PlanEnum.free,
         extended_free=False,
         api_password_hash=None,
-        created_at=datetime.now(UTC),
+        created_at=datetime.now(UTC).replace(tzinfo=None),
     )
     db_session.add(user)
     await db_session.commit()
@@ -34,7 +34,7 @@ async def _create_channel(db_session, *, user_id, name: str = "channel") -> Chan
         platform=PlatformEnum.telegram,
         name=name,
         is_active=True,
-        created_at=datetime.now(UTC),
+        created_at=datetime.now(UTC).replace(tzinfo=None),
     )
     db_session.add(channel)
     await db_session.commit()
@@ -50,7 +50,7 @@ async def _create_post(
 ) -> PostQueue:
     post = PostQueue(
         channel_id=channel_id,
-        scheduled_at=datetime.now(UTC) + timedelta(hours=1),
+        scheduled_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(hours=1),
         status=status,
         content_type=ContentTypeEnum.text,
         text_prompt="text",
@@ -58,7 +58,7 @@ async def _create_post(
         generated_text=None,
         generated_image_key=None,
         error_message=None,
-        created_at=datetime.now(UTC),
+        created_at=datetime.now(UTC).replace(tzinfo=None),
     )
     db_session.add(post)
     await db_session.commit()

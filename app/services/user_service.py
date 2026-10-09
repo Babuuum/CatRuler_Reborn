@@ -80,7 +80,7 @@ async def get_stats(db: AsyncSession, user_id: UUID) -> UserStats:
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
 
-    channels_count = await channel_repo.count_by_user(db, user_id)
+    channels_count = await channel_repo.count_by_user(db, user_id, active_only=True)
     channels_limit = get_channel_limit(user.plan, user.extended_free)
 
     posts_today = await post_repo.count_today_by_user(db, user_id)

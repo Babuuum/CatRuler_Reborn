@@ -1,128 +1,153 @@
 # CatRuler_Reborn
 
-## Что это
+CatRuler_Reborn — сервис автоматической генерации и публикации контента в VK и Telegram. Пользователь выбирает канал до генерации, получает готовый текст и изображение, а затем сохраняет пост в очередь.
 
-CatRuler_Reborn — SaaS для автопостинга в VK и Telegram с AI-генерацией текста и изображений.
+## Стек и версии
 
-## Стек
+- FastAPI, SQLAlchemy async, Alembic
+- PostgreSQL 16, Redis 7
+- Celery и aiogram
+- Yandex Object Storage
+- Python 3.13 (совпадает с Docker и CI)
 
-- FastAPI
-- PostgreSQL
-- Redis
-- Celery
-- aiogram
-- Yandex S3
+Зависимости устанавливаются из `poetry.lock`; обновление зависимостей для запуска не требуется.
 
-## Быстрый старт
+## Локальный запуск
 
-1. Создайте `.env` на основе `.env.example`.
-2. Соберите контейнеры:
+1. Создайте `.env` на основе `.env.example` и заполните обязательные значения: `ENCRYPTION_KEY`, параметры PostgreSQL, `JWT_SECRET_KEY`, а для генерации и изображений — ключи провайдеров и Object Storage.
+2. Соберите образы:
 
 ```bash
 make build
 ```
 
-3. Поднимите API, БД, Redis, worker и beat:
+3. Запустите базу, Redis, миграции, API, worker и beat:
 
 ```bash
 make up
 ```
 
-4. Примените миграции:
+`api`, `worker` и `beat` запускаются только после успешного завершения `alembic upgrade head`. API имеет безопасный liveness endpoint `GET /health`, который возвращает только `{ "status": "ok" }`.
 
-```bash
-make migrate
-```
-
-5. Запустите бота:
+4. Запустите бота отдельным профилем:
 
 ```bash
 make bot-up
 ```
 
+Бот ждёт `api` в состоянии `healthy`, а не просто запущенный процесс. Логи:
+
+```bash
+make logs
+make bot-logs
+```
+
+Остановить стек:
+
+```bash
+make down
+```
+
+Профиль `tailscale` не включён в обычный запуск. Его можно запускать только после отдельной настройки и проверки вашей tailnet-конфигурации:
+
+```bash
+docker compose --profile tailscale up -d tailscale
+```
+
+Проект сам по себе не обещает Funnel, публичный адрес или готовую маршрутизацию. Для webhook нужно отдельно настроить доступный внешний URL, `BOT_MODE=webhook`, `WEBHOOK_BASE_URL` и `WEBHOOK_SECRET`, затем проверить маршрутизацию до API/бота.
+
+## Тестовый стек
+
+Тесты используют отдельный PostgreSQL на `127.0.0.1:55432`. `.env` для этого не нужен:
+
+```bash
+docker compose --env-file /dev/null -f docker-compose.test.yml up -d --wait
+.venv/bin/pytest -q
+docker compose --env-file /dev/null -f docker-compose.test.yml down -v
+```
+
+Для Poetry:
+
+```bash
+poetry install --with dev,test --no-interaction
+poetry run pytest -q
+```
+
+Тестовая база создаётся на каждый тестовый контур и удаляется после него. Не направляйте `docker-compose.test.yml` на рабочую БД.
+
 ## Переменные окружения
 
-### APP
+Секреты не выводятся в логи и не должны добавляться в git.
 
-- `DEV_MODE` — режим разработки.
-- `LOG_LEVEL` — уровень логирования.
-- `JWT_SECRET_KEY` — секрет для JWT.
-- `JWT_ALGORITHM` — алгоритм подписи JWT.
-- `JWT_EXPIRE_MINUTES` — время жизни access token.
+### Приложение и база
 
-### DB
+- `DEV_MODE`, `LOG_LEVEL` — режим и уровень логирования.
+- `JWT_SECRET_KEY`, `JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES` — access token.
+- `DATABASE_URL` — полная строка PostgreSQL; если не задана, используется набор `PROD_DB_*`.
+- `PROD_DB_NAME`, `PROD_DB_USER`, `PROD_DB_PASSWORD`, `PROD_DB_HOST`, `PROD_DB_PORT` — параметры PostgreSQL.
+- `REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND` — Redis для сессий и Celery.
 
-- `DATABASE_URL` — полная строка подключения к БД.
-- `PROD_DB_NAME` — имя базы PostgreSQL.
-- `PROD_DB_USER` — пользователь PostgreSQL.
-- `PROD_DB_PASSWORD` — пароль PostgreSQL.
-- `PROD_DB_HOST` — хост PostgreSQL.
-- `PROD_DB_PORT` — порт PostgreSQL.
+### Бот и webhook
 
-### TG
+- `TELEGRAM_BOT_TOKEN` — токен бота.
+- `INTERNAL_API_URL`, `INTERNAL_API_SHARED_SECRET` — адрес и секрет внутренних bot→API запросов.
+- `BOT_MODE` — `polling` или `webhook`.
+- `WEBHOOK_BASE_URL`, `WEBHOOK_PATH`, `WEBHOOK_SECRET`, `TELEGRAM_BOT_SECRET_TOKEN` — параметры webhook.
 
-- `TELEGRAM_BOT_TOKEN` — токен Telegram-бота.
-- `INTERNAL_API_URL` — адрес API для внутренних вызовов из бота.
-- `INTERNAL_API_SHARED_SECRET` — общий секрет для защищённых внутренних bot->api запросов.
-- `BOT_MODE` — режим бота: `polling` или `webhook`.
-- `WEBHOOK_BASE_URL` — внешний базовый URL для webhook-режима.
-- `WEBHOOK_PATH` — путь webhook endpoint.
-- `WEBHOOK_SECRET` — секрет проверки webhook.
-- `TELEGRAM_BOT_SECRET_TOKEN` — secret token Telegram webhook.
+### Генерация и публикация
 
-### LLM
+- `OPEN_ROUTER_API_KEY`, `HUGGING_FACE_API_KEY`, `POLLEN_API_KEY` — ключи провайдеров генерации.
+- `YANDEX_ACCESS_KEY`, `YANDEX_SECRET_KEY`, `YANDEX_BUCKET_NAME` — Object Storage.
+- `PUBLISH_REQUEST_TIMEOUT` — timeout внешнего запроса публикации в секундах; соединение ограничивается пятью секундами.
+- `ENCRYPTION_KEY` — Fernet-ключ для зашифрованных токенов каналов.
 
-- `OPEN_ROUTER_API_KEY` — ключ OpenRouter.
-- `HUGGING_FACE_API_KEY` — ключ Hugging Face.
-- `POLLEN_API_KEY` — ключ Pollinations, если нужен провайдеру.
+## Каналы, тарифы и генерация
 
-### CRYPTO
+Лимит подключённых активных каналов сохраняется: Free — 1, расширенный Free — 3, Base/Pro — 999. Лимиты проверяются сервером.
 
-- `ENCRYPTION_KEY` — Fernet-ключ для шифрования сохранённых токенов.
+В боте откройте «Мои каналы». Для VK укажите ссылку или ID сообщества и токен сообщества. Пароль VK не используется. Для Telegram укажите имя и `@username` или `chat_id`. Секрет VK вводится последним сообщением в личном чате; бот не хранит его открытым в FSM и пытается удалить сообщение после обработки.
 
-### YANDEX_STORAGE
+Перед генерацией выберите активный канал. Результат содержит текст, фотографию и название выбранного канала. При создании поста выберите «Сейчас» или время в UTC. Повторное нажатие использует один ключ идемпотентности и не должно создавать дубль.
 
-- `YANDEX_ACCESS_KEY` — access key Object Storage.
-- `YANDEX_SECRET_KEY` — secret key Object Storage.
-- `YANDEX_BUCKET_NAME` — имя бакета для изображений.
-- `REDIS_URL` — Redis для кеша и внутренних сервисов.
-- `CELERY_BROKER_URL` — Redis broker для Celery.
-- `CELERY_RESULT_BACKEND` — Redis backend для Celery.
+Отключение канала сохраняет историю и прекращает будущие публикации. Уже опубликованные записи во внешней платформе не удаляются.
 
-### Tailscale
-
-- `TAILSCALE_AUTH_KEY` — auth key для Tailscale.
-- `TAILSCALE_HOSTNAME` — hostname узла Tailscale.
+Публикационная попытка имеет lease и владельца. При hard crash, истёкшем lease, timeout или невозможности определить результат внешнего запроса пост получает статус `unknown`. Такой результат не повторяется автоматически: сначала требуется ручная проверка провайдера.
 
 ## API
 
-- `/auth/login` — вход по `telegram_id` и API-паролю.
-- `/users/me` — профиль текущего пользователя.
-- `/users/me/stats` — лимиты и статистика пользователя.
-- `/users/me/api-password` — выдача нового API-пароля для бота.
-- `/channels` — управление каналами пользователя.
-- `/posts` — очередь постов и ручные посты.
-- `/generate/text` — генерация текста.
-- `/generate/image` — генерация изображения.
-- `/generate/text-image` — генерация текста и изображения.
-- `/models` — каталог доступных моделей генерации.
+- `GET /health` — liveness без конфигурации.
+- `/auth/login` — вход по Telegram ID и API-паролю.
+- `/users/me`, `/users/me/stats` — профиль и лимиты.
+- `/channels` — подключение, отключение и список каналов.
+- `GET /assets/{asset_id}` — авторизованное получение изображения владельцем.
+- `/generate/text`, `/generate/image`, `/generate/text-image` — генерация; выбор канала передаётся через `channel_id`.
+- `/posts` — очередь постов, включая `asset_id`, UTC `scheduled_at` и `idempotency_key`.
+- `/models` — доступные модели.
 
-## Бот
+## Обновление существующей базы
 
-Бот умеет:
+Перед изменением схемы:
 
-- генерировать пост по текстовому запросу;
-- показывать профиль и текущие лимиты;
-- переключать текстовую и графическую модели;
-- показывать список подключённых каналов;
-- выдавать API-пароль в личные сообщения;
-- показывать человекочитаемые ошибки вместо сырых backend-ответов.
+1. Проверьте подключение и текущую ревизию: `alembic current`.
+2. Сделайте PostgreSQL backup, например `pg_dump --format=custom ... > backup.dump`; параметры берите из защищённого окружения, не записывайте их в команды/логи.
+3. Проверьте свободное место и окно обслуживания.
 
-## Деплой
+Обновление выполняется только вперёд:
 
-- Для внешнего доступа используется Tailscale Funnel.
-- В webhook-режиме bot endpoint обслуживается по пути `/webhook/bot`.
-- Tailscale проксирует:
-  - `/` -> API на `8001`
-  - `/webhook/bot` -> bot на `8080`
-- Для production нужно задать `BOT_MODE=webhook`, `WEBHOOK_BASE_URL`, `WEBHOOK_SECRET`, `TAILSCALE_AUTH_KEY` и `TAILSCALE_HOSTNAME`.
+```bash
+alembic upgrade head
+alembic current
+```
+
+Для Docker `make up` выполняет миграции отдельным сервисом до API и worker. При ошибке миграции зависимые сервисы не стартуют. Не выполняйте destructive downgrade на рабочей базе. Если миграция остановилась, сохраните ошибку, восстановите backup только по утверждённой процедуре и повторите после исправления причины.
+
+Новые миграции T02–T05 добавляют резервации квот, assets, публикационные lease/attempt-поля, статус `unknown` и idempotency key; старые миграции не редактируются.
+
+## Quality gate
+
+```bash
+pytest
+ruff check .
+black --check .
+pre-commit run -a
+```

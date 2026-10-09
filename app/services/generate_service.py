@@ -1,9 +1,9 @@
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db.models.models import ActionEnum
 from app.core.generation_models import (
     DEFAULT_IMAGE_MODEL_KEY,
     DEFAULT_TEXT_MODEL_KEY,
@@ -15,7 +15,7 @@ from app.core.logger import get_logger
 from app.core.services import storage
 from app.core.services.generation.post_generator import PostGenerator, ProviderError
 from app.core.settings import get_settings
-from app.repositories import channel_repo, usage_log_repo, user_repo
+from app.repositories import asset_repo, channel_repo, quota_reservation_repo, user_repo
 from app.schemas.generate import (
     GenerateImageResponse,
     GenerateTextImageResponse,
@@ -23,6 +23,60 @@ from app.schemas.generate import (
 )
 
 logger = get_logger(__name__)
+_RESERVATION_TTL = timedelta(minutes=15)
+
+
+async def _reserve_generation(
+    db: AsyncSession,
+    user_id: UUID,
+    *,
+    text_units: int,
+    image_units: int,
+) -> UUID:
+    user = await user_repo.get_by_id(db, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    operation_id = uuid4()
+    try:
+        await quota_reservation_repo.reserve_generation(
+            db,
+            user_id=user_id,
+            operation_id=operation_id,
+            day_utc=now.date(),
+            limit=get_daily_generation_limit(user.plan, user.extended_free),
+            text_units=text_units,
+            image_units=image_units,
+            expires_at=now + _RESERVATION_TTL,
+            now=now,
+        )
+        await db.commit()
+    except quota_reservation_repo.QuotaExceededError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=403,
+            detail=f"Daily generation limit reached for your plan ({get_daily_generation_limit(user.plan, user.extended_free)} per day)",
+        ) from exc
+    except Exception:
+        await db.rollback()
+        raise
+    return operation_id
+
+
+async def _finalize_generation(
+    db: AsyncSession, operation_id: UUID, *, consumed: bool
+) -> None:
+    now = datetime.now(UTC).replace(tzinfo=None)
+    try:
+        if consumed:
+            await quota_reservation_repo.finalize_consumed(db, operation_id, now)
+        else:
+            await quota_reservation_repo.finalize_released(db, operation_id, now)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
 
 
 async def _ensure_channel_access(
@@ -31,32 +85,15 @@ async def _ensure_channel_access(
     channel_id: UUID | None,
 ) -> None:
     if channel_id is None:
-        return
+        raise HTTPException(status_code=422, detail="Channel is required")
 
     channel = await channel_repo.get_by_id(db, channel_id)
     if channel is None:
         raise HTTPException(status_code=404, detail="Channel not found")
     if channel.user_id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
-
-
-async def _check_generation_limit(db: AsyncSession, user_id: UUID, needed: int) -> None:
-    user = await user_repo.get_by_id(db, user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    limit = get_daily_generation_limit(user.plan, user.extended_free)
-    used_text = await usage_log_repo.count_today(db, user_id, ActionEnum.post_generated)
-    used_image = await usage_log_repo.count_today(
-        db, user_id, ActionEnum.image_generated
-    )
-    used_total = used_text + used_image
-
-    if used_total + needed > limit:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Daily generation limit reached for your plan ({limit} per day)",
-        )
+    if not channel.is_active:
+        raise HTTPException(status_code=409, detail="Channel is inactive")
 
 
 async def _build_generator(
@@ -116,6 +153,14 @@ async def _upload_generated_image(user_id: UUID, image_bytes: bytes) -> str:
     return key
 
 
+async def _create_generated_asset(
+    db: AsyncSession, user_id: UUID, object_key: str
+) -> UUID:
+    asset = await asset_repo.create(db, user_id, object_key)
+    await db.commit()
+    return asset.id
+
+
 async def generate_text(
     db: AsyncSession,
     user_id: UUID,
@@ -123,25 +168,32 @@ async def generate_text(
     channel_id: UUID | None = None,
 ) -> GenerateTextResponse:
     await _ensure_channel_access(db, user_id, channel_id)
-    await _check_generation_limit(db, user_id, needed=1)
-
-    generator = await _build_generator(db, user_id)
+    operation_id = await _reserve_generation(db, user_id, text_units=1, image_units=0)
     try:
+        generator = await _build_generator(db, user_id)
         text, provider_used = await generator.generate_text(prompt)
     except ProviderError as exc:
+        await _finalize_generation(db, operation_id, consumed=False)
         raise HTTPException(
             status_code=503,
             detail="All generation providers failed. Try again later.",
         ) from exc
+    except Exception:
+        await _finalize_generation(db, operation_id, consumed=False)
+        raise
 
-    await usage_log_repo.create(db, user_id, ActionEnum.post_generated)
+    await _finalize_generation(db, operation_id, consumed=True)
     logger.info(
         "text_generated",
         user_id=str(user_id),
         provider=provider_used,
         prompt_length=len(prompt),
     )
-    return GenerateTextResponse(text=text, provider_used=provider_used)
+    return GenerateTextResponse(
+        operation_id=operation_id,
+        text=text,
+        provider_used=provider_used,
+    )
 
 
 async def generate_image(
@@ -151,26 +203,42 @@ async def generate_image(
     channel_id: UUID | None = None,
 ) -> GenerateImageResponse:
     await _ensure_channel_access(db, user_id, channel_id)
-    await _check_generation_limit(db, user_id, needed=1)
-
-    generator = await _build_generator(db, user_id)
+    operation_id = await _reserve_generation(db, user_id, text_units=0, image_units=1)
     try:
+        generator = await _build_generator(db, user_id)
         image_bytes, provider_used = await generator.generate_image(prompt)
     except ProviderError as exc:
+        await _finalize_generation(db, operation_id, consumed=False)
         raise HTTPException(
             status_code=503,
             detail="All generation providers failed. Try again later.",
         ) from exc
-    image_key = await _upload_generated_image(user_id, image_bytes)
+    except Exception:
+        await _finalize_generation(db, operation_id, consumed=False)
+        raise
+    try:
+        image_key = await _upload_generated_image(user_id, image_bytes)
+    except Exception:
+        await _finalize_generation(db, operation_id, consumed=False)
+        raise
 
-    await usage_log_repo.create(db, user_id, ActionEnum.image_generated)
+    try:
+        asset_id = await _create_generated_asset(db, user_id, image_key)
+        await _finalize_generation(db, operation_id, consumed=True)
+    except Exception:
+        await _finalize_generation(db, operation_id, consumed=False)
+        raise
     logger.info(
         "image_generated",
         user_id=str(user_id),
         provider=provider_used,
         prompt_length=len(prompt),
     )
-    return GenerateImageResponse(image_key=image_key, provider_used=provider_used)
+    return GenerateImageResponse(
+        operation_id=operation_id,
+        asset_id=asset_id,
+        provider_used=provider_used,
+    )
 
 
 async def generate_text_image(
@@ -181,24 +249,32 @@ async def generate_text_image(
     channel_id: UUID | None = None,
 ) -> GenerateTextImageResponse:
     await _ensure_channel_access(db, user_id, channel_id)
-    await _check_generation_limit(db, user_id, needed=2)
-
-    generator = await _build_generator(db, user_id)
+    operation_id = await _reserve_generation(db, user_id, text_units=1, image_units=1)
     try:
+        generator = await _build_generator(db, user_id)
         text, provider_used_text = await generator.generate_text(text_prompt)
         image_bytes, provider_used_image = await generator.generate_image(image_prompt)
     except ProviderError as exc:
+        await _finalize_generation(db, operation_id, consumed=False)
         raise HTTPException(
             status_code=503,
             detail="All generation providers failed. Try again later.",
         ) from exc
-    image_key = await _upload_generated_image(user_id, image_bytes)
+    except Exception:
+        await _finalize_generation(db, operation_id, consumed=False)
+        raise
+    try:
+        image_key = await _upload_generated_image(user_id, image_bytes)
+    except Exception:
+        await _finalize_generation(db, operation_id, consumed=False)
+        raise
 
-    await usage_log_repo.create_bulk(
-        db,
-        user_id,
-        [ActionEnum.post_generated, ActionEnum.image_generated],
-    )
+    try:
+        asset_id = await _create_generated_asset(db, user_id, image_key)
+        await _finalize_generation(db, operation_id, consumed=True)
+    except Exception:
+        await _finalize_generation(db, operation_id, consumed=False)
+        raise
 
     logger.info(
         "text_image_generated",
@@ -210,8 +286,9 @@ async def generate_text_image(
     )
 
     return GenerateTextImageResponse(
+        operation_id=operation_id,
         text=text,
-        image_key=image_key,
+        asset_id=asset_id,
         provider_used_text=provider_used_text,
         provider_used_image=provider_used_image,
     )

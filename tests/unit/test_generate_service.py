@@ -2,8 +2,17 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 
 from app.services import generate_service
+
+
+@pytest.mark.asyncio
+async def test_generation_requires_channel():
+    with pytest.raises(HTTPException) as exc_info:
+        await generate_service._ensure_channel_access(object(), uuid4(), None)
+
+    assert exc_info.value.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -19,7 +28,12 @@ async def test_generate_text_uses_user_model_keys(mocker):
         return_value=fake_generator,
     )
     mocker.patch.object(generate_service, "_ensure_channel_access", mocker.AsyncMock())
-    mocker.patch.object(generate_service, "_check_generation_limit", mocker.AsyncMock())
+    mocker.patch.object(
+        generate_service,
+        "_reserve_generation",
+        mocker.AsyncMock(return_value=uuid4()),
+    )
+    mocker.patch.object(generate_service, "_finalize_generation", mocker.AsyncMock())
     mocker.patch.object(
         generate_service.user_repo,
         "get_by_id",
@@ -28,7 +42,6 @@ async def test_generate_text_uses_user_model_keys(mocker):
             image_model_key="hf_sd_spaces",
         ),
     )
-    mocker.patch.object(generate_service.usage_log_repo, "create", mocker.AsyncMock())
 
     result = await generate_service.generate_text(db, user_id, "prompt")
 
@@ -55,7 +68,12 @@ async def test_generate_text_falls_back_for_invalid_model_keys(mocker):
     )
     warning_mock = mocker.patch.object(generate_service.logger, "warning")
     mocker.patch.object(generate_service, "_ensure_channel_access", mocker.AsyncMock())
-    mocker.patch.object(generate_service, "_check_generation_limit", mocker.AsyncMock())
+    mocker.patch.object(
+        generate_service,
+        "_reserve_generation",
+        mocker.AsyncMock(return_value=uuid4()),
+    )
+    mocker.patch.object(generate_service, "_finalize_generation", mocker.AsyncMock())
     mocker.patch.object(
         generate_service.user_repo,
         "get_by_id",
@@ -64,7 +82,6 @@ async def test_generate_text_falls_back_for_invalid_model_keys(mocker):
             image_model_key="broken-image-key",
         ),
     )
-    mocker.patch.object(generate_service.usage_log_repo, "create", mocker.AsyncMock())
 
     result = await generate_service.generate_text(db, user_id, "prompt")
 

@@ -18,7 +18,7 @@ async def _create_user(
         plan=PlanEnum.free,
         extended_free=False,
         api_password_hash=api_password_hash,
-        created_at=datetime.now(UTC),
+        created_at=datetime.now(UTC).replace(tzinfo=None),
     )
     db_session.add(user)
     await db_session.commit()
@@ -113,3 +113,29 @@ async def test_get_me_returns_200_with_valid_token(client, db_session):
 
     assert response.status_code == 200
     assert response.json()["id"] == str(user.id)
+
+
+async def test_generated_api_password_uses_real_bcrypt_and_logs_in(client, db_session):
+    from sqlalchemy import select
+
+    from app.core.settings import get_settings
+
+    response = await client.post(
+        "/users/me/api-password",
+        headers={
+            "X-Telegram-Id": "2002",
+            "X-Internal-Api-Secret": get_settings().INTERNAL_API_SHARED_SECRET,
+        },
+    )
+    assert response.status_code == 200
+    password = response.json()["password"]
+    user = (
+        await db_session.execute(select(User).where(User.telegram_id == 2002))
+    ).scalar_one()
+    assert user.api_password_hash.startswith("$2b$")
+    assert bcrypt.checkpw(password.encode(), user.api_password_hash.encode())
+    assert not bcrypt.checkpw(b"wrong-password", user.api_password_hash.encode())
+    login = await client.post(
+        "/auth/login", json={"telegram_id": 2002, "password": password}
+    )
+    assert login.status_code == 200

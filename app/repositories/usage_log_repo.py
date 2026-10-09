@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -8,10 +8,10 @@ from app.core.db.models.models import ActionEnum, UsageLog
 
 
 async def create(db: AsyncSession, user_id: UUID, action: ActionEnum) -> UsageLog:
+    """Stage one usage row; the service owns the surrounding transaction."""
     usage_log = UsageLog(user_id=user_id, action=action)
     db.add(usage_log)
-    await db.commit()
-    await db.refresh(usage_log)
+    await db.flush()
     return usage_log
 
 
@@ -20,7 +20,7 @@ async def create_bulk(
     user_id: UUID,
     actions: list[ActionEnum],
 ) -> list[UsageLog]:
-    """Create multiple usage log entries in a single transaction."""
+    """Stage multiple usage rows; the service owns commit or rollback."""
     logs = [UsageLog(user_id=user_id, action=action) for action in actions]
     db.add_all(logs)
     await db.flush()
@@ -28,7 +28,9 @@ async def create_bulk(
 
 
 async def count_today(db: AsyncSession, user_id: UUID, action: ActionEnum) -> int:
-    day_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    day_start = datetime.now(UTC).replace(
+        hour=0, minute=0, second=0, microsecond=0, tzinfo=None
+    )
     day_end = day_start + timedelta(days=1)
 
     stmt = select(func.count(UsageLog.id)).where(

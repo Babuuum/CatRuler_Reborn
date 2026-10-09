@@ -20,7 +20,7 @@ async def _create_user(
         api_password_hash=None,
         text_model_key=text_model_key,
         image_model_key=image_model_key,
-        created_at=datetime.now(UTC),
+        created_at=datetime.now(UTC).replace(tzinfo=None),
     )
     db_session.add(user)
     await db_session.commit()

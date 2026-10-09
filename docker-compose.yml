@@ -8,10 +8,10 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PROD_DB_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U ${PROD_DB_USER} -d ${PROD_DB_NAME}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 12
 
   redis:
     image: redis:7-alpine
@@ -19,12 +19,26 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 12
+
+  migrate:
+    build: .
+    command: alembic upgrade head
+    env_file:
+      - ${APP_ENV_FILE:-.env}
+    environment:
+      PROD_DB_HOST: db
+      PROD_DB_PORT: "5432"
+      DATABASE_URL: postgresql+asyncpg://${PROD_DB_USER}:${PROD_DB_PASSWORD}@db:5432/${PROD_DB_NAME}
+    depends_on:
+      db:
+        condition: service_healthy
 
   api:
     build: .
     command: uvicorn app.api.main:app --host 0.0.0.0 --port 8000
-    env_file: .env
+    env_file:
+      - ${APP_ENV_FILE:-.env}
     environment:
       DATABASE_URL: postgresql+asyncpg://${PROD_DB_USER}:${PROD_DB_PASSWORD}@db:5432/${PROD_DB_NAME}
       PROD_DB_HOST: db
@@ -34,28 +48,23 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/2
     ports:
       - "8001:8000"
+    healthcheck:
+      test:
+        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
-        condition: service_healthy
-
-  migrate:
-    build: .
-    command: alembic upgrade head
-    env_file: .env
-    environment:
-      PROD_DB_HOST: db
-      PROD_DB_PORT: "5432"
-      DATABASE_URL: postgresql+asyncpg://${PROD_DB_USER}:${PROD_DB_PASSWORD}@db:5432/${PROD_DB_NAME}
-    depends_on:
-      db:
         condition: service_healthy
 
   worker:
     build: .
     command: celery -A app.celery_app worker --loglevel=info
-    env_file: .env
+    env_file:
+      - ${APP_ENV_FILE:-.env}
     environment:
       DATABASE_URL: postgresql+asyncpg://${PROD_DB_USER}:${PROD_DB_PASSWORD}@db:5432/${PROD_DB_NAME}
       PROD_DB_HOST: db
@@ -64,27 +73,35 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
 
   beat:
     build: .
     command: celery -A app.celery_app beat --loglevel=info
-    env_file: .env
+    env_file:
+      - ${APP_ENV_FILE:-.env}
     environment:
+      DATABASE_URL: postgresql+asyncpg://${PROD_DB_USER}:${PROD_DB_PASSWORD}@db:5432/${PROD_DB_NAME}
+      PROD_DB_HOST: db
+      PROD_DB_PORT: "5432"
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
 
   bot:
+    profiles: ["bot"]
     build: .
     command: python -m app.bot.main
-    env_file: .env
+    env_file:
+      - ${APP_ENV_FILE:-.env}
     environment:
       PROD_DB_HOST: db
       PROD_DB_PORT: "5432"
@@ -96,11 +113,12 @@ services:
       - "8080:8080"
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
       redis:
         condition: service_healthy
 
   tailscale:
+    profiles: ["tailscale"]
     image: tailscale/tailscale:stable
     network_mode: host
     environment:

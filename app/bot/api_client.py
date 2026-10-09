@@ -145,6 +145,8 @@ async def invalidate_token(telegram_id: int) -> None:
     redis = _get_redis()
     try:
         await redis.delete(_token_cache_key(telegram_id))
+    except Exception as exc:
+        raise BotAPIError("Session storage is unavailable") from exc
     finally:
         await redis.aclose()
 
@@ -152,7 +154,10 @@ async def invalidate_token(telegram_id: int) -> None:
 async def _get_cached_token(telegram_id: int) -> str | None:
     redis = _get_redis()
     try:
-        token = await redis.get(_token_cache_key(telegram_id))
+        try:
+            token = await redis.get(_token_cache_key(telegram_id))
+        except Exception as exc:
+            raise BotAPIError("Session storage is unavailable") from exc
     finally:
         await redis.aclose()
 
@@ -164,7 +169,10 @@ async def _get_cached_token(telegram_id: int) -> str | None:
 async def _cache_token(telegram_id: int, token: str) -> None:
     redis = _get_redis()
     try:
-        await redis.set(_token_cache_key(telegram_id), token, ex=TOKEN_TTL_SECONDS)
+        try:
+            await redis.set(_token_cache_key(telegram_id), token, ex=TOKEN_TTL_SECONDS)
+        except Exception as exc:
+            raise BotAPIError("Session storage is unavailable") from exc
     finally:
         await redis.aclose()
 
@@ -206,6 +214,36 @@ async def _authorized_request(
         headers={"Authorization": f"Bearer {refreshed_token}"},
         json=json,
     )
+
+
+async def _authorized_bytes_request(path: str, *, token: str) -> bytes:
+    settings = get_settings()
+
+    async def request(current_token: str) -> httpx.Response:
+        async with httpx.AsyncClient(
+            base_url=settings.INTERNAL_API_URL.rstrip("/"), timeout=DEFAULT_TIMEOUT
+        ) as client:
+            try:
+                return await client.get(
+                    path,
+                    headers={"Authorization": f"Bearer {current_token}"},
+                )
+            except httpx.HTTPError as exc:
+                raise BotAPIError("Internal API is unavailable") from exc
+
+    response = await request(token)
+    if response.status_code == 401:
+        telegram_id = _token_owner_cache.pop(token, None)
+        if telegram_id is None:
+            raise BotAPIError("Token expired", status_code=401)
+        await invalidate_token(telegram_id)
+        token = await _refresh_token(telegram_id)
+        response = await request(token)
+    if not response.is_success:
+        raise BotAPIError(
+            "Image asset is unavailable", status_code=response.status_code
+        )
+    return response.content
 
 
 async def get_profile(token: str) -> dict[str, Any]:
@@ -253,18 +291,72 @@ async def get_channels(token: str) -> list[dict[str, Any]]:
     return [dict(item) for item in data]
 
 
+async def create_vk_channel(
+    token: str, *, name: str, group_id: str, community_token: str
+) -> dict[str, Any]:
+    data = await _authorized_request(
+        "POST",
+        "/channels/vk",
+        token=token,
+        json={
+            "name": name,
+            "group_id": group_id,
+            "community_token": community_token,
+        },
+    )
+    return dict(data)
+
+
+async def create_tg_channel(token: str, *, name: str, chat_id: str) -> dict[str, Any]:
+    data = await _authorized_request(
+        "POST",
+        "/channels/tg",
+        token=token,
+        json={"name": name, "chat_id": chat_id},
+    )
+    return dict(data)
+
+
+async def delete_channel(token: str, channel_id: str) -> None:
+    await _authorized_request("DELETE", f"/channels/{channel_id}", token=token)
+
+
+async def disable_channel(token: str, channel_id: str) -> dict[str, Any]:
+    data = await _authorized_request(
+        "PATCH",
+        f"/channels/{channel_id}",
+        token=token,
+        json={"is_active": False},
+    )
+    return dict(data)
+
+
 async def generate_text_image(
     token: str,
     text_prompt: str,
     image_prompt: str,
+    channel_id: str,
 ) -> dict[str, Any]:
     data = await _authorized_request(
         "POST",
         "/generate/text-image",
         token=token,
-        json={"text_prompt": text_prompt, "image_prompt": image_prompt},
+        json={
+            "text_prompt": text_prompt,
+            "image_prompt": image_prompt,
+            "channel_id": channel_id,
+        },
     )
     return dict(data)
+
+
+async def create_post(token: str, payload: dict[str, Any]) -> dict[str, Any]:
+    data = await _authorized_request("POST", "/posts", token=token, json=payload)
+    return dict(data)
+
+
+async def download_asset(token: str, asset_id: str) -> bytes:
+    return await _authorized_bytes_request(f"/assets/{asset_id}", token=token)
 
 
 async def get_or_refresh_token(telegram_id: int) -> str:

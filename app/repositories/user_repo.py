@@ -16,6 +16,11 @@ async def get_by_telegram_id(db: AsyncSession, telegram_id: int) -> User | None:
     return result.scalar_one_or_none()
 
 
+async def get_by_id_for_update(db: AsyncSession, user_id: UUID) -> User | None:
+    result = await db.execute(select(User).where(User.id == user_id).with_for_update())
+    return result.scalar_one_or_none()
+
+
 async def create(db: AsyncSession, telegram_id: int) -> User:
     user = User(telegram_id=telegram_id)
     db.add(user)

@@ -1,12 +1,14 @@
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.db.models.models import (
     Channel,
     PlatformEnum,
+    PostQueue,
+    PostStatusEnum,
     TGChannelConfig,
     VKChannelConfig,
 )
@@ -25,16 +27,78 @@ async def get_all_by_user(db: AsyncSession, user_id: UUID) -> list[Channel]:
     return list(result.scalars().all())
 
 
-async def count_by_user(db: AsyncSession, user_id: UUID) -> int:
+async def count_by_user(
+    db: AsyncSession, user_id: UUID, *, active_only: bool = False
+) -> int:
     stmt = select(func.count(Channel.id)).where(Channel.user_id == user_id)
+    if active_only:
+        stmt = stmt.where(Channel.is_active.is_(True))
     result = await db.execute(stmt)
     return int(result.scalar_one() or 0)
+
+
+async def get_external(
+    db: AsyncSession,
+    user_id: UUID,
+    platform: PlatformEnum,
+    external_id: str,
+) -> Channel | None:
+    config_model = VKChannelConfig if platform == PlatformEnum.vk else TGChannelConfig
+    external_column = (
+        config_model.group_id if platform == PlatformEnum.vk else config_model.chat_id
+    )
+    result = await db.execute(
+        select(Channel)
+        .join(config_model, Channel.id == config_model.channel_id)
+        .where(
+            Channel.user_id == user_id,
+            Channel.platform == platform,
+            external_column == external_id,
+        )
+        .options(*_BASE_OPTIONS)
+    )
+    return result.scalar_one_or_none()
+
+
+async def update_vk_token(
+    db: AsyncSession, channel_id: UUID, community_token: str
+) -> None:
+    result = await db.execute(
+        select(VKChannelConfig).where(VKChannelConfig.channel_id == channel_id)
+    )
+    config = result.scalar_one_or_none()
+    if config is None:
+        raise ValueError("VK channel config not found")
+    config._community_token = community_token
+    await db.flush()
 
 
 async def get_by_id(db: AsyncSession, channel_id: UUID) -> Channel | None:
     stmt = select(Channel).where(Channel.id == channel_id).options(*_BASE_OPTIONS)
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
+
+
+async def get_by_id_for_update(db: AsyncSession, channel_id: UUID) -> Channel | None:
+    result = await db.execute(
+        select(Channel)
+        .where(Channel.id == channel_id)
+        .options(*_BASE_OPTIONS)
+        .with_for_update()
+    )
+    return result.scalar_one_or_none()
+
+
+async def has_active_publish_attempt(db: AsyncSession, channel_id: UUID) -> bool:
+    result = await db.execute(
+        select(
+            exists().where(
+                PostQueue.channel_id == channel_id,
+                PostQueue.status == PostStatusEnum.in_progress,
+            )
+        )
+    )
+    return bool(result.scalar())
 
 
 async def create_vk(
@@ -55,7 +119,7 @@ async def create_vk(
     )
     db.add(vk_config)
     await db.flush()
-    await db.commit()
+    await db.flush()
 
     created = await get_by_id(db, channel.id)
     if created is None:
@@ -71,7 +135,7 @@ async def create_tg(
     await db.flush()
 
     db.add(TGChannelConfig(channel_id=channel.id, chat_id=chat_id))
-    await db.commit()
+    await db.flush()
 
     created = await get_by_id(db, channel.id)
     if created is None:
@@ -80,7 +144,7 @@ async def create_tg(
 
 
 async def update(db: AsyncSession, channel_id: UUID, data: dict) -> Channel:
-    channel = await get_by_id(db, channel_id)
+    channel = await get_by_id_for_update(db, channel_id)
     if channel is None:
         raise ValueError("Channel not found")
 
@@ -97,9 +161,4 @@ async def update(db: AsyncSession, channel_id: UUID, data: dict) -> Channel:
 
 
 async def delete(db: AsyncSession, channel_id: UUID) -> None:
-    channel = await get_by_id(db, channel_id)
-    if channel is None:
-        raise ValueError("Channel not found")
-
-    await db.delete(channel)
-    await db.commit()
+    raise RuntimeError("Physical channel deletion is disabled; deactivate it instead")
